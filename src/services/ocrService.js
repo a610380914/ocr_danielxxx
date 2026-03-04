@@ -23,7 +23,7 @@ class OCRService {
   }
 
   // 生成签名（简化版，实际使用时需要根据阿里云文档实现完整的签名算法）
-  _generateSignature() {
+  _generateSignature(params, method, path, date) {
     // 这里使用简化的签名方式，实际使用时需要根据阿里云文档实现完整的签名算法
     // 由于浏览器环境限制，我们使用fetch API直接调用，阿里云会处理签名
     return '';
@@ -38,10 +38,42 @@ class OCRService {
 
     const imageBase64 = this._arrayBufferToBase64(imageBuffer);
     
-    // 由于浏览器环境限制，我们使用fetch API直接调用阿里云OCR API
-    // 注意：这种方式在浏览器中可能会遇到CORS问题
-    // 推荐的做法是在后端实现OCR调用，前端通过API接口调用
-    throw new Error('浏览器环境下暂不支持直接调用阿里云OCR API，请在后端实现OCR调用');
+    // 构造请求参数
+    const params = {
+      Action: 'RecognizeIdCard',
+      Version: '2019-12-30',
+      RegionId: 'cn-shanghai',
+      Image: imageBase64,
+      Side: 'face'
+    };
+
+    // 构造请求URL
+    const url = new URL('https://ocr.cn-shanghai.aliyuncs.com');
+    Object.keys(params).forEach(key => {
+      url.searchParams.append(key, params[key]);
+    });
+
+    try {
+      // 发送请求
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'AccessKeyId': this.accessKeyId,
+          'Signature': this._generateSignature(params, 'POST', '/', new Date().toISOString())
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('ID card OCR error:', error);
+      throw error;
+    }
   }
 
   async recognizeBankCard(imageBuffer) {
@@ -53,10 +85,41 @@ class OCRService {
 
     const imageBase64 = this._arrayBufferToBase64(imageBuffer);
     
-    // 由于浏览器环境限制，我们使用fetch API直接调用阿里云OCR API
-    // 注意：这种方式在浏览器中可能会遇到CORS问题
-    // 推荐的做法是在后端实现OCR调用，前端通过API接口调用
-    throw new Error('浏览器环境下暂不支持直接调用阿里云OCR API，请在后端实现OCR调用');
+    // 构造请求参数
+    const params = {
+      Action: 'RecognizeBankCard',
+      Version: '2019-12-30',
+      RegionId: 'cn-shanghai',
+      Image: imageBase64
+    };
+
+    // 构造请求URL
+    const url = new URL('https://ocr.cn-shanghai.aliyuncs.com');
+    Object.keys(params).forEach(key => {
+      url.searchParams.append(key, params[key]);
+    });
+
+    try {
+      // 发送请求
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'AccessKeyId': this.accessKeyId,
+          'Signature': this._generateSignature(params, 'POST', '/', new Date().toISOString())
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Bank card OCR error:', error);
+      throw error;
+    }
   }
 }
 

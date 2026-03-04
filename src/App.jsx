@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Button, Progress, message, Card, List, Typography, Alert, Space, Input, Divider } from 'antd';
+import { Upload, Button, Progress, message, Card, List, Typography, Alert, Space, Input, Divider, Radio } from 'antd';
 import { UploadOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, SaveOutlined, KeyOutlined } from '@ant-design/icons';
 import ocrService from './services/ocrService';
 
 const { Title, Text } = Typography;
 
 function App() {
-  const [fileList, setFileList] = useState([]);
+  const [idCardFileList, setIdCardFileList] = useState([]);
+  const [bankCardFileList, setBankCardFileList] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState([]);
   const [accessKeyId, setAccessKeyId] = useState('');
   const [accessKeySecret, setAccessKeySecret] = useState('');
   const [configSaved, setConfigSaved] = useState(false);
+  const [ocrType, setOcrType] = useState('idCard'); // idCard 或 bankCard
 
   // 从localStorage加载已保存的配置
   useEffect(() => {
@@ -44,7 +46,56 @@ function App() {
     }, 3000);
   };
 
+  const handleIdCardChange = (info) => {
+    // 过滤有效的图片文件
+    const validFiles = info.fileList.filter(file => {
+      const isJpgOrPng = file.type === 'image/jpeg' || file.type === 'image/png';
+      const isLt2M = file.size / 1024 / 1024 < 2;
+      if (!isJpgOrPng) {
+        message.error('只能上传JPG/PNG文件!');
+        return false;
+      }
+      if (!isLt2M) {
+        message.error('文件大小不能超过2MB!');
+        return false;
+      }
+      return true;
+    });
+    setIdCardFileList(validFiles);
+    // 清空银行卡文件列表
+    setBankCardFileList([]);
+    setOcrType('idCard');
+  };
+
+  const handleBankCardChange = (info) => {
+    // 过滤有效的图片文件
+    const validFiles = info.fileList.filter(file => {
+      const isJpgOrPng = file.type === 'image/jpeg' || file.type === 'image/png';
+      const isLt2M = file.size / 1024 / 1024 < 2;
+      if (!isJpgOrPng) {
+        message.error('只能上传JPG/PNG文件!');
+        return false;
+      }
+      if (!isLt2M) {
+        message.error('文件大小不能超过2MB!');
+        return false;
+      }
+      return true;
+    });
+    setBankCardFileList(validFiles);
+    // 清空身份证文件列表
+    setIdCardFileList([]);
+    setOcrType('bankCard');
+  };
+
   const handleUpload = async () => {
+    let fileList = [];
+    if (ocrType === 'idCard') {
+      fileList = idCardFileList;
+    } else {
+      fileList = bankCardFileList;
+    }
+
     if (fileList.length === 0) {
       message.warning('请先选择文件');
       return;
@@ -77,63 +128,39 @@ function App() {
         // 更新进度
         setProgress(Math.round(((i + 1) / fileList.length) * 100));
 
-        // 尝试识别身份证
-        try {
-          const idCardResult = await ocrService.recognizeIDCard(buffer);
-          newResults.push({
-            fileName: file.name,
-            type: '身份证',
-            success: true,
-            data: idCardResult.Data,
-            error: null
-          });
-        } catch (idCardError) {
-          // 尝试识别银行卡
-          try {
-            const bankCardResult = await ocrService.recognizeBankCard(buffer);
-            newResults.push({
-              fileName: file.name,
-              type: '银行卡',
-              success: true,
-              data: bankCardResult.Data,
-              error: null
-            });
-          } catch (bankCardError) {
-            // 检查是否是认证错误
-            if (bankCardError.message && (bankCardError.message.includes('InvalidAccessKeyId') || bankCardError.message.includes('SignatureDoesNotMatch'))) {
-              newResults.push({
-                fileName: file.name,
-                type: '未知',
-                success: false,
-                data: null,
-                error: '阿里云OCR密钥配置错误，请检查AccessKey ID和AccessKey Secret'
-              });
-            } else if (bankCardError.message && bankCardError.message.includes('ServiceUnavailable')) {
-              newResults.push({
-                fileName: file.name,
-                type: '未知',
-                success: false,
-                data: null,
-                error: '阿里云OCR服务暂时不可用，请稍后重试'
-              });
-            } else {
-              newResults.push({
-                fileName: file.name,
-                type: '未知',
-                success: false,
-                data: null,
-                error: '无法识别，请确保上传的是清晰的身份证或银行卡照片'
-              });
-            }
-          }
+        // 根据选择的类型进行识别
+        let recognitionResult;
+        if (ocrType === 'idCard') {
+          recognitionResult = await ocrService.recognizeIDCard(buffer);
+        } else {
+          recognitionResult = await ocrService.recognizeBankCard(buffer);
         }
-      } catch (error) {
+
         newResults.push({
           fileName: file.name,
-          type: '未知',
+          type: ocrType === 'idCard' ? '身份证' : '银行卡',
+          success: true,
+          data: recognitionResult.Data,
+          error: null
+        });
+      } catch (error) {
+        // 检查是否是认证错误
+        let errorMessage = '处理文件时出错';
+        if (error.message) {
+          if (error.message.includes('InvalidAccessKeyId') || error.message.includes('SignatureDoesNotMatch')) {
+            errorMessage = '阿里云OCR密钥配置错误，请检查AccessKey ID和AccessKey Secret';
+          } else if (error.message.includes('ServiceUnavailable')) {
+            errorMessage = '阿里云OCR服务暂时不可用，请稍后重试';
+          } else {
+            errorMessage = error.message;
+          }
+        }
+        newResults.push({
+          fileName: file.name,
+          type: ocrType === 'idCard' ? '身份证' : '银行卡',
           success: false,
           data: null,
-          error: '处理文件时出错: ' + (error.message || '未知错误')
+          error: errorMessage
         });
       }
     }
@@ -141,24 +168,6 @@ function App() {
     setResults(newResults);
     setUploading(false);
     message.success('识别完成');
-  };
-
-  const handleChange = (info) => {
-    // 过滤有效的图片文件
-    const validFiles = info.fileList.filter(file => {
-      const isJpgOrPng = file.type === 'image/jpeg' || file.type === 'image/png';
-      const isLt2M = file.size / 1024 / 1024 < 2;
-      if (!isJpgOrPng) {
-        message.error('只能上传JPG/PNG文件!');
-        return false;
-      }
-      if (!isLt2M) {
-        message.error('文件大小不能超过2MB!');
-        return false;
-      }
-      return true;
-    });
-    setFileList(validFiles);
   };
 
   const getResultContent = (result) => {
@@ -176,13 +185,31 @@ function App() {
     if (result.type === '身份证') {
       const idCardData = result.data;
       return (
-        <div>
-          <p><strong>姓名:</strong> {idCardData.Name}</p>
-          <p><strong>身份证号:</strong> {idCardData.IDNumber}</p>
-          <p><strong>性别:</strong> {idCardData.Gender}</p>
-          <p><strong>民族:</strong> {idCardData.Nationality}</p>
-          <p><strong>出生日期:</strong> {idCardData.BirthDate}</p>
-          <p><strong>地址:</strong> {idCardData.Address}</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span><strong>姓名:</strong></span>
+            <span>{idCardData.Name}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span><strong>身份证号:</strong></span>
+            <span>{idCardData.IDNumber}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span><strong>性别:</strong></span>
+            <span>{idCardData.Gender}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span><strong>民族:</strong></span>
+            <span>{idCardData.Nationality}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span><strong>出生日期:</strong></span>
+            <span>{idCardData.BirthDate}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span><strong>地址:</strong></span>
+            <span style={{ flex: 1, marginLeft: '10px' }}>{idCardData.Address}</span>
+          </div>
         </div>
       );
     }
@@ -190,10 +217,19 @@ function App() {
     if (result.type === '银行卡') {
       const bankCardData = result.data;
       return (
-        <div>
-          <p><strong>卡号:</strong> {bankCardData.Number}</p>
-          <p><strong>开户行:</strong> {bankCardData.Issuer}</p>
-          <p><strong>卡类型:</strong> {bankCardData.Type}</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span><strong>卡号:</strong></span>
+            <span>{bankCardData.Number}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span><strong>开户行:</strong></span>
+            <span>{bankCardData.Issuer}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span><strong>卡类型:</strong></span>
+            <span>{bankCardData.Type}</span>
+          </div>
         </div>
       );
     }
@@ -243,19 +279,42 @@ function App() {
         extra={<Text type="secondary">支持JPG、PNG格式，单个文件不超过2MB</Text>}
         style={{ marginBottom: '20px' }}
       >
-        <Upload
-          name="files"
-          multiple
-          fileList={fileList}
-          onChange={handleChange}
-          beforeUpload={() => false} // 阻止自动上传
-          listType="picture"
-          maxCount={10}
-        >
-          <Button icon={<UploadOutlined />} disabled={uploading}>
-            选择文件
-          </Button>
-        </Upload>
+        <Space direction="vertical" style={{ width: '100%', marginBottom: '20px' }}>
+          <Radio.Group value={ocrType} onChange={(e) => setOcrType(e.target.value)}>
+            <Radio value="idCard">身份证识别</Radio>
+            <Radio value="bankCard">银行卡识别</Radio>
+          </Radio.Group>
+        </Space>
+        
+        {ocrType === 'idCard' ? (
+          <Upload
+            name="idCardFiles"
+            multiple
+            fileList={idCardFileList}
+            onChange={handleIdCardChange}
+            beforeUpload={() => false} // 阻止自动上传
+            listType="picture"
+            maxCount={10}
+          >
+            <Button icon={<UploadOutlined />} disabled={uploading}>
+              选择身份证照片
+            </Button>
+          </Upload>
+        ) : (
+          <Upload
+            name="bankCardFiles"
+            multiple
+            fileList={bankCardFileList}
+            onChange={handleBankCardChange}
+            beforeUpload={() => false} // 阻止自动上传
+            listType="picture"
+            maxCount={10}
+          >
+            <Button icon={<UploadOutlined />} disabled={uploading}>
+              选择银行卡照片
+            </Button>
+          </Upload>
+        )}
         
         {uploading && (
           <Progress
@@ -270,12 +329,15 @@ function App() {
             type="primary"
             onClick={handleUpload}
             loading={uploading}
-            disabled={fileList.length === 0 || uploading}
+            disabled={(idCardFileList.length === 0 && bankCardFileList.length === 0) || uploading}
           >
             {uploading ? '识别中...' : '开始识别'}
           </Button>
           <Button
-            onClick={() => setFileList([])}
+            onClick={() => {
+              setIdCardFileList([]);
+              setBankCardFileList([]);
+            }}
             disabled={uploading}
           >
             清空
