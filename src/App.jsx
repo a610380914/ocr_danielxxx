@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Upload, Button, Progress, message, Card, List, Typography, Alert, Space } from 'antd';
-import { UploadOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Upload, Button, Progress, message, Card, List, Typography, Alert, Space, Input, Divider } from 'antd';
+import { UploadOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, SaveOutlined, KeyOutlined } from '@ant-design/icons';
 import ocrService from './services/ocrService';
 
 const { Title, Text } = Typography;
@@ -10,10 +10,51 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState([]);
+  const [accessKeyId, setAccessKeyId] = useState('');
+  const [accessKeySecret, setAccessKeySecret] = useState('');
+  const [configSaved, setConfigSaved] = useState(false);
+
+  // 从localStorage加载已保存的配置
+  useEffect(() => {
+    const savedAccessKeyId = localStorage.getItem('ALIYUN_ACCESS_KEY_ID');
+    const savedAccessKeySecret = localStorage.getItem('ALIYUN_ACCESS_KEY_SECRET');
+    if (savedAccessKeyId) {
+      setAccessKeyId(savedAccessKeyId);
+    }
+    if (savedAccessKeySecret) {
+      setAccessKeySecret(savedAccessKeySecret);
+    }
+  }, []);
+
+  const handleSaveConfig = () => {
+    if (!accessKeyId || !accessKeySecret) {
+      message.error('请输入完整的阿里云OCR密钥');
+      return;
+    }
+    
+    // 保存到localStorage
+    localStorage.setItem('ALIYUN_ACCESS_KEY_ID', accessKeyId);
+    localStorage.setItem('ALIYUN_ACCESS_KEY_SECRET', accessKeySecret);
+    setConfigSaved(true);
+    message.success('配置保存成功');
+    
+    // 3秒后重置保存状态
+    setTimeout(() => {
+      setConfigSaved(false);
+    }, 3000);
+  };
 
   const handleUpload = async () => {
     if (fileList.length === 0) {
       message.warning('请先选择文件');
+      return;
+    }
+
+    // 检查是否配置了阿里云OCR密钥
+    const savedAccessKeyId = localStorage.getItem('ALIYUN_ACCESS_KEY_ID');
+    const savedAccessKeySecret = localStorage.getItem('ALIYUN_ACCESS_KEY_SECRET');
+    if (!savedAccessKeyId || !savedAccessKeySecret) {
+      message.error('请先配置阿里云OCR密钥');
       return;
     }
 
@@ -58,13 +99,32 @@ function App() {
               error: null
             });
           } catch (bankCardError) {
-            newResults.push({
-              fileName: file.name,
-              type: '未知',
-              success: false,
-              data: null,
-              error: '无法识别，请确保上传的是清晰的身份证或银行卡照片'
-            });
+            // 检查是否是认证错误
+            if (bankCardError.message && (bankCardError.message.includes('InvalidAccessKeyId') || bankCardError.message.includes('SignatureDoesNotMatch'))) {
+              newResults.push({
+                fileName: file.name,
+                type: '未知',
+                success: false,
+                data: null,
+                error: '阿里云OCR密钥配置错误，请检查AccessKey ID和AccessKey Secret'
+              });
+            } else if (bankCardError.message && bankCardError.message.includes('ServiceUnavailable')) {
+              newResults.push({
+                fileName: file.name,
+                type: '未知',
+                success: false,
+                data: null,
+                error: '阿里云OCR服务暂时不可用，请稍后重试'
+              });
+            } else {
+              newResults.push({
+                fileName: file.name,
+                type: '未知',
+                success: false,
+                data: null,
+                error: '无法识别，请确保上传的是清晰的身份证或银行卡照片'
+              });
+            }
           }
         }
       } catch (error) {
@@ -73,7 +133,7 @@ function App() {
           type: '未知',
           success: false,
           data: null,
-          error: '处理文件时出错'
+          error: '处理文件时出错: ' + (error.message || '未知错误')
         });
       }
     }
@@ -144,6 +204,39 @@ function App() {
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px' }}>
       <Title level={2} style={{ textAlign: 'center', marginBottom: '30px' }}>OCR识别系统</Title>
+      
+      <Card
+        title={<Space><KeyOutlined /> 阿里云OCR配置</Space>}
+        style={{ marginBottom: '20px' }}
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Input
+            placeholder="请输入AccessKey ID"
+            value={accessKeyId}
+            onChange={(e) => setAccessKeyId(e.target.value)}
+            style={{ width: '100%' }}
+          />
+          <Input.Password
+            placeholder="请输入AccessKey Secret"
+            value={accessKeySecret}
+            onChange={(e) => setAccessKeySecret(e.target.value)}
+            style={{ width: '100%' }}
+          />
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={handleSaveConfig}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            {configSaved ? '已保存' : '保存配置'}
+          </Button>
+          <Text type="secondary">
+            配置将保存在浏览器本地，刷新页面后仍然有效
+          </Text>
+        </Space>
+      </Card>
+      
+      <Divider />
       
       <Card
         title="上传文件"
